@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""
+figma-cli — 通过 Codex app-server 调 Figma MCP 工具
+
+一个独立的命令行客户端，把 Codex CLI 自带的 figma@openai-api-curated 插件
+暴露的 MCP 工具打包成可以脚本化的 CLI，无需启动 Codex TUI / exec。
+
+子命令:
+    figma-cli status                      查 figma MCP server 连接/认证状态
+    figma-cli tools                       列出全部 figma 工具
+    figma-cli schema <tool>               查某工具的 inputSchema
+    figma-cli call <tool> '<json-args>'   调 figma 工具 (JSON 模式)
+    figma-cli call <tool> [k=v ...]       调 figma 工具 (简化 k=v 模式)
+
+示例:
+    figma-cli status
+    figma-cli tools
+    figma-cli schema create_new_file
+    figma-cli call whoami '{}'
+    figma-cli call create_new_file fileName=MyDesign editorType=design planKey=team::YOUR_PLAN_KEY
+    figma-cli call use_figma '{"fileKey":"FILE_KEY","description":"...","code":"<JS>"}'
+    figma-cli call get_screenshot '{"fileKey":"FILE_KEY","nodeId":"1:2","maxDimension":1024}'
+
+环境变量:
+    FIGMA_CLI_VERBOSE=1    显示 JSON-RPC 调试输出
+    FIGMA_CLI_TIMEOUT=180  工具调用超时 (秒, 默认 180)
+"""
+import json, os, subprocess, sys, time, threading, shutil
+
+APP = ["codex", "app-server"]
+TIMEOUT_DEFAULT = 180  # create_new_file 等需走 OAuth + Figma 远程 API，90s 不够
+
+
+# ---------- helpers ----------
+
+def err(*a, **k):
+    print(*a, file=sys.stderr, **k)
+
+
+def parse_args(args):
+    """把 ['k=v', 'k2=v2'] 或 ['{json}'] 解析成 dict."""
+    if not args:
+        return {}
+    if len(args) == 1 and args[0].lstrip().startswith("{"):
+        return json.loads(args[0])
+    out = {}
+    for a in args:
+        if "=" not in a:
+            err(f"无法解析参数: {a}  (需 key=value 或 JSON)")
+            sys.exit(2)
+        k, _, v = a.partition("=")
+        out[k] = v
+    return out
+
+
+# ---------- JSON-RPC 客户端 ----------
+
+class CodexClient:
+    def __init__(self):
+        self.proc = subprocess.Popen(
+            APP, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+        self.out_lines = []
+        self._stop = False
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+
+    def _read_stdout(self):
+        buf = b""
+        while not self._stop:
+            c = self.proc.stdout.read(1)
+            if not c: break
+            buf += c
+            if c == b"\n":
+                self.out_lines.append(buf.decode("utf-8", "replace"))
+                buf = b""
+
+    def _read_stderr(self):
+        while not self._stop:
+            c = self.proc.stderr.read(1)
+            if not c: break
+            if os.environ.get("FIGMA_CLI_VERBOSE"):
+                err(f"[codex stderr] {c.decode('utf-8','replace')}", end="")
+
+    def send(self, req):
+        line = (json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8")
+        if os.environ.get("FIGMA_CLI_VERBOSE"):
+            err(f"[in] {line.decode().rstrip()}")
+        self.proc.stdin.write(line)
+        self.proc.stdin.flush()
+
+    def wait_response(self, req_id, timeout):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(0.15)
+            for line in self.out_lines:
+                if not line.strip(): continue
+                try: obj = json.loads(line)
+                except: continue
+                if obj.get("id") == req_id:
+                    return obj
+        return None
+
+    def init(self):
+        self.send({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "clientInfo":{"name":"figma-cli","version":"1.0.0"},
+            "capabilities":{}}})
+        r = self.wait_response(1, 10)
+        if not r or "error" in r:
+            err("initialize 失败:", json.dumps(r, ensure_ascii=False)[:300] if r else "no response")
+            sys.exit(1)
+        self.send({"jsonrpc":"2.0","method":"notifications/initialized"})
+
+    def start_thread(self, cwd="."):
+        self.send({"jsonrpc":"2.0","id":2,"method":"thread/start","params":{
+            "cwd":cwd,"approvalPolicy":"never","sandbox":"read-only"}})
+        r = self.wait_response(2, 10)
+        if not r or "error" in r:
+            err("thread/start 失败:", json.dumps(r, ensure_ascii=False)[:300] if r else "no response")
+            sys.exit(1)
+        res = r["result"]
+        if isinstance(res, dict) and "thread" in res:
+            return res["thread"]["id"]
+        if isinstance(res, dict) and "id" in res:
+            return res["id"]
+        err(f"无法从 thread/start 响应提取 id: {res}")
+        sys.exit(1)
+
+    def call_tool(self, thread_id, tool, arguments, timeout):
+        self.send({"jsonrpc":"2.0","id":3,"method":"mcpServer/tool/call","params":{
+            "server":"figma","tool":tool,"arguments":arguments,"threadId":thread_id}})
+        r = self.wait_response(3, timeout)
+        if not r:
+            return {"error": {"code": -32000, "message": f"timeout after {timeout}s"}}
+        return r
+
+    def list_status(self, require_tools=False, max_wait=30):
+        """轮询 mcpServerStatus/list 直到 figma 出现且 (可选) 加载完工具。
+        首次 app-server 启动后 figma 需要 ~15s 才能加载所有 45 个工具。"""
+        deadline = time.time() + max_wait
+        last = None
+        while time.time() < deadline:
+            self.send({"jsonrpc":"2.0","id":4,"method":"mcpServerStatus/list","params":{}})
+            r = self.wait_response(4, 8)
+            if not r or "error" in r:
+                time.sleep(1)
+                continue
+            for s in r["result"].get("data", []):
+                if s.get("name") == "figma":
+                    last = s
+                    tools_count = len(s.get("tools") or {})
+                    if not require_tools or tools_count > 0:
+                        return s
+            time.sleep(1)
+        return last
+
+    def close(self):
+        self._stop = True
+        try:
+            self.proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            self.proc.terminate()
+        except Exception:
+            pass
+        try:
+            self.proc.wait(timeout=3)
+        except Exception:
+            pass
+
+
+# ---------- command handlers ----------
+
+def cmd_status(client):
+    s = client.list_status(require_tools=False, max_wait=20)
+    if not s:
+        err("figma MCP server 不在 status 列表里"); sys.exit(1)
+    print(f"Server: figma")
+    print(f"  authStatus:    {s.get('authStatus')}")
+    print(f"  runtimeStatus: {s.get('runtimeStatus')}")
+    print(f"  pluginId:      {s.get('pluginId')}")
+    print(f"  httpOrigin:    {s.get('httpOrigin')}")
+    print(f"  tools:         {len(s.get('tools') or {})}")
+
+
+def cmd_tools(client):
+    s = client.list_status(require_tools=True, max_wait=30)
+    if not s: err("figma server not found"); sys.exit(1)
+    tools = s.get("tools") or {}
+    for name in sorted(tools.keys()):
+        info = tools[name] or {}
+        desc = (info.get("description") or "").split("\n")[0][:100]
+        print(f"  {name}  —  {desc}")
+
+
+def cmd_schema(client, tool_name):
+    s = client.list_status(require_tools=True, max_wait=30)
+    if not s: err("figma server not found"); sys.exit(1)
+    tools = s.get("tools") or {}
+    if tool_name not in tools:
+        err(f"工具不存在: {tool_name}"); err(f"可用: {', '.join(sorted(tools.keys()))}"); sys.exit(1)
+    print(json.dumps(tools[tool_name], ensure_ascii=False, indent=2))
+
+
+def cmd_call(client, tool, args, timeout):
+    # 先确保 figma 工具已加载（首次 app-server 需 ~15s 启动 MCP server）
+    s = client.list_status(require_tools=True, max_wait=30)
+    if not s:
+        err("figma MCP server 未就绪"); sys.exit(1)
+    thread_id = client.start_thread()
+    if os.environ.get("FIGMA_CLI_VERBOSE"):
+        err(f"[thread] {thread_id}")
+    r = client.call_tool(thread_id, tool, args, timeout)
+    if "error" in r and "result" not in r:
+        err(f"工具调用失败: {r['error'].get('message','')}")
+        sys.exit(1)
+    res = r.get("result", {})
+    # MCP 工具响应结构: { content: [{type:text, text:"..."}], structuredContent, _meta }
+    content = res.get("content") or []
+    sc = res.get("structuredContent")
+    if sc:
+        print(json.dumps(sc, ensure_ascii=False, indent=2))
+    else:
+        for c in content:
+            if c.get("type") == "text":
+                # 尝试 pretty-print 嵌入的 JSON
+                txt = c.get("text", "")
+                try:
+                    parsed = json.loads(txt)
+                    print(json.dumps(parsed, ensure_ascii=False, indent=2))
+                except Exception:
+                    print(txt)
+            else:
+                print(json.dumps(c, ensure_ascii=False, indent=2))
+
+
+# ---------- main ----------
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__); sys.exit(0)
+
+    if not shutil.which("codex"):
+        err("错误: 'codex' 不在 PATH"); sys.exit(1)
+
+    cmd = sys.argv[1]
+    rest = sys.argv[2:]
+
+    client = CodexClient()
+    try:
+        client.init()
+
+        if cmd == "status":
+            cmd_status(client)
+        elif cmd == "tools":
+            cmd_tools(client)
+        elif cmd in ("schema", "tool-schema"):
+            if not rest: err("usage: figma-cli schema <tool>"); sys.exit(2)
+            cmd_schema(client, rest[0])
+        elif cmd == "call":
+            if not rest: err("usage: figma-cli call <tool> [args]"); sys.exit(2)
+            tool = rest[0]
+            args = parse_args(rest[1:])
+            timeout = int(os.environ.get("FIGMA_CLI_TIMEOUT", TIMEOUT_DEFAULT))
+            cmd_call(client, tool, args, timeout)
+        else:
+            err(f"未知命令: {cmd}"); err("用法: figma-cli {status|tools|schema <tool>|call <tool> [args]}")
+            sys.exit(2)
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    try: main()
+    except KeyboardInterrupt: sys.exit(130)
+    except BrokenPipeError: sys.exit(0)
