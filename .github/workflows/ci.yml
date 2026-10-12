@@ -1,0 +1,37 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Python 语法检查
+        run: |
+          python3 -m py_compile figma-cli && echo "✓ figma-cli syntax OK"
+
+      - name: Shell 语法检查
+        run: |
+          bash -n install.sh && echo "✓ install.sh syntax OK"
+          for f in examples/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" && echo "✓ $f syntax OK"
+          done
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@212f6e07b4f7e5e8d6c49287c61b683c88e4b7c1  # v2.0.0
+        with:
+          scandir: .
+          additional_files: install.sh examples/*.sh

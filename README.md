@@ -1,4 +1,4 @@
-# codex-figma-cli
+# pi-figma-bridge
 
 > 一个独立 CLI，把 Codex CLI 自带的 `figma@openai-api-curated` 插件暴露的 45 个 Figma MCP 工具打包成可脚本化命令，无需启动 Codex TUI。
 
@@ -18,8 +18,8 @@
 - Figma OAuth 已通过 Codex 完成（首次执行会自动弹浏览器）
 
 ```bash
-git clone https://github.com/gztcode/codex-figma-cli.git
-cd codex-figma-cli
+git clone https://github.com/gztcode/pi-figma-bridge.git
+cd pi-figma-bridge
 chmod +x figma-cli
 ln -s "$(pwd)/figma-cli" ~/.local/bin/figma-cli   # 或复制到任何 $PATH 目录
 ```
