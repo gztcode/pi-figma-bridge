@@ -30,8 +30,11 @@ jobs:
             bash -n "$f" && echo "✓ $f syntax OK"
           done
 
-      - name: shellcheck
-        uses: ludeeus/action-shellcheck@212f6e07b4f7e5e8d6c49287c61b683c88e4b7c1  # v2.0.0
-        with:
-          scandir: .
-          additional_files: install.sh examples/*.sh
+      - name: install shellcheck
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: brew install shellcheck
+
+      - name: run shellcheck
+        run: |
+          shellcheck install.sh examples/*.sh
