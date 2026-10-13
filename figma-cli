@@ -104,7 +104,7 @@ class CodexClient:
 
     def init(self):
         self.send({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-            "clientInfo":{"name":"figma-cli","version":"1.0.0"},
+            "clientInfo":{"name":"figma-cli","version":"1.0.1"},
             "capabilities":{}}})
         r = self.wait_response(1, 10)
         if not r or "error" in r:
