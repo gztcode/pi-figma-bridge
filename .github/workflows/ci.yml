@@ -11,16 +11,56 @@ permissions: {}
 
 jobs:
   lint:
-    name: Lint
-    runs-on: macos-latest
+    name: Lint (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos 用系统自带 Python（GitHub macos-latest runner 已经 ≥ 3.9），
+        # ubuntu 用 setup-python 拉三个 LTS 版本做交叉验证。
+        include:
+          - os: macos-latest
+            label: macos-latest / 系统 Python
+            setup-python: false
+          - os: ubuntu-latest
+            python-version: "3.9"
+            label: ubuntu-latest / py3.9
+            setup-python: true
+          - os: ubuntu-latest
+            python-version: "3.11"
+            label: ubuntu-latest / py3.11
+            setup-python: true
+          - os: ubuntu-latest
+            python-version: "3.13"
+            label: ubuntu-latest / py3.13
+            setup-python: true
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Setup Python (ubuntu)
+        if: matrix.setup-python
+        # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: install shellcheck (macos)
+        if: matrix.os == 'macos-latest'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: brew install shellcheck
+
+      - name: install shellcheck (ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
       - name: Python 语法检查
         run: |
-          python3 -m py_compile figma-cli && echo "✓ figma-cli syntax OK"
+          for py in figma-cli scripts/render_terminal.py; do
+            python3 -m py_compile "$py" && echo "✓ $py syntax OK"
+          done
 
       - name: Shell 语法检查
         run: |
@@ -30,11 +70,7 @@ jobs:
             bash -n "$f" && echo "✓ $f syntax OK"
           done
 
-      - name: install shellcheck
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-        run: brew install shellcheck
-
       - name: run shellcheck
         run: |
+          shellcheck --version
           shellcheck install.sh examples/*.sh

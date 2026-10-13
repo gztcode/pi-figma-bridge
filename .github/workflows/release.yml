@@ -1,0 +1,58 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许创建 / 编辑 release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0   # softprops 用 git history 推断 previous tag
+
+      - name: Validate tag format
+        run: |
+          TAG="${GITHUB_REF_NAME}"   # e.g. v1.0.3
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag $TAG 不符合 vMAJOR.MINOR.PATCH 规范"
+            exit 1
+          fi
+          echo "✓ tag $TAG 通过"
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # 优先用 git log 生成 changelog 段落；fallback 到 --generate-notes
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            {
+              echo "## 变更 (${PREV} → ${GITHUB_REF_NAME})"
+              echo
+              git log "${PREV}..HEAD" --pretty=format:"- %s (%h)" --no-merges
+            } > release-notes.md
+          else
+            : > release-notes.md
+          fi
+          echo "notes_file=release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        # v2
+        uses: >-
+          softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body_path: release-notes.md
+          fail_on_unmatched_files: true

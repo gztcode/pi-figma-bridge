@@ -3,7 +3,7 @@
 #
 # 用法:
 #   ./install.sh                 # 装最新 release
-#   ./install.sh v1.0.2          # 装指定 tag
+#   ./install.sh v1.0.3          # 装指定 tag
 #   ./install.sh --uninstall     # 卸载
 #
 # 也可远程跑: curl -sL https://raw.githubusercontent.com/gztcode/pi-figma-bridge/main/install.sh | bash

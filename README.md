@@ -6,13 +6,17 @@
 
 **`figma-cli` 直接驱动 `codex app-server` 的 JSON-RPC 接口，把 `figma@openai-api-curated` 暴露的 45 个 Figma 工具打包成一个能从 shell / CI / 其他进程里调用的独立命令。**
 
-[![Version](https://img.shields.io/badge/version-1.0.2-blue?style=flat-square)](https://github.com/gztcode/pi-figma-bridge/releases/tag/v1.0.2)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue?style=flat-square)](https://github.com/gztcode/pi-figma-bridge/releases/tag/v1.0.3)
 [![License: MIT](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square)](#安装)
 [![CI](https://img.shields.io/badge/CI-passing-2ea043?style=flat-square)](.github/workflows/ci.yml)
 
 [安装](#安装) · [用法](#用法) · [工具清单](#工具清单) · [工作原理](#工作原理) · [环境变量](#环境变量) · [故障排查](#故障排查) · [为什么存在](#为什么存在) · [更新](#更新)
+
+<p align="center">
+  <img src="docs/images/figma-cli-status.png" alt="figma-cli status: 45 Figma MCP tools exposed as a shell command" width="720">
+</p>
 
 </div>
 
@@ -202,10 +206,17 @@ curl -sL https://raw.githubusercontent.com/gztcode/pi-figma-bridge/main/install.
 或装指定版本：
 
 ```bash
-./install.sh v1.0.2
+./install.sh v1.0.3
 ```
 
 ## Changelog
+
+**v1.0.3**
+
+- README hero 加一张 `figma-cli status` 终端截图，源码走 `scripts/render_terminal.py`（PIL，标准库外唯一依赖）；未来换图直接改脚本 + 重新出 PNG 即可
+- CI 改成 4 路矩阵：`macOS-latest × 系统 Python` + `ubuntu-latest × py3.9/3.11/3.13`；shellcheck 在 macOS 用 brew，ubuntu 用 apt；所有 action pin 到 commit SHA（`actions/checkout@11bd71901bbe...`）和`actions/setup-python@5fda3b95...`），不是 tag
+- 加 `release.yml`：tag push `v*` 触发，校验 tag 格式，用 `softprops/action-gh-release@v2`（SHA `3bb12739c298...`）自动写 release body，从前的 `go` 三连手动出报表
+- 版本号同步：`figma-cli` `clientInfo.version`、`install.sh` 注释、README badge / install 示例全部跳到 `1.0.3`
 
 **v1.0.2**
 
