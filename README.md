@@ -203,8 +203,6 @@ curl -sL https://raw.githubusercontent.com/gztcode/pi-figma-bridge/main/install.
 ./install.sh v1.0.1
 ```
 
-> 注意：`./install.sh` 不传参数时走 GitHub **Release** tarball，而不是源 tag。所以新版本需要先到 GitHub 上把 tag 转成 Release 才能被 `latest` 模式拉到；传明确版本（如 `v1.0.1`）走 tarball API，不需要 Release 资源。
-
 ## Changelog
 
 **v1.0.1**
