@@ -6,7 +6,7 @@
 
 **`figma-cli` 直接驱动 `codex app-server` 的 JSON-RPC 接口，把 `figma@openai-api-curated` 暴露的 45 个 Figma 工具打包成一个能从 shell / CI / 其他进程里调用的独立命令。**
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue?style=flat-square)](https://github.com/gztcode/pi-figma-bridge/releases/tag/v1.0.1)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue?style=flat-square)](https://github.com/gztcode/pi-figma-bridge/releases/tag/v1.0.2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?style=flat-square)](#安装)
@@ -17,6 +17,8 @@
 </div>
 
 > **这是什么**：Codex CLI 已经内置了 `figma@openai-api-curated` 这个 Figma MCP 插件（在 Codex TUI / Desktop 里能用），但 `codex exec` 和非 Codex 上下文拿不到这些工具。本项目直接驱动 `codex app-server`（Codex 内置的 JSON-RPC 守护进程），把 45 个 Figma 工具暴露成一个独立的 `figma-cli` 命令 —— 不开 Codex TUI，单调用 1-3s 启动，可塞进 CI / cron / shell 脚本。
+
+> **关于命名**：仓库叫 `pi-figma-bridge`，里面的 `pi-` 指 [Pi Coding Agent](https://github.com/badlogic/pi-coding-agent)（写这个工具的 AI agent），**不是** Codex 或 Figma 的项目符号 —— 工具本身完全跑在 Codex CLI 上，和 Pi 没有运行时依赖。装好后实际敲的命令是 `figma-cli`，跟仓库名差了一截是历史原因，不打算改了。
 
 ## 安装
 
@@ -146,7 +148,7 @@ examples/whoami-and-create.sh    # 查身份 + 建一个新文件
 
 ```json
 // 一次调用的 JSON-RPC 序列
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"figma-cli","version":"1.0.1"},"capabilities":{}}}
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"figma-cli","version":"1.0.2"},"capabilities":{}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"cwd":".","approvalPolicy":"never","sandbox":"read-only"}}
 {"jsonrpc":"2.0","id":3,"method":"mcpServer/tool/call","params":{"server":"figma","tool":"whoami","arguments":{},"threadId":"<thread-id>"}}
@@ -200,10 +202,15 @@ curl -sL https://raw.githubusercontent.com/gztcode/pi-figma-bridge/main/install.
 或装指定版本：
 
 ```bash
-./install.sh v1.0.1
+./install.sh v1.0.2
 ```
 
 ## Changelog
+
+**v1.0.2**
+
+- 文档：在「这是什么」callout 下方加「关于命名」callout，说清楚 `pi-` 前缀的含义和「repo 名 ≠ 二进制名」这个一致关系
+- 版本号：`figma-cli` 的 `clientInfo.version`、`install.sh` 注释、README badge / 协议示例 / install 命令全部同步到 `1.0.2`
 
 **v1.0.1**
 
